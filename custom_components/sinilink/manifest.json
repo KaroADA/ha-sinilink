@@ -1,0 +1,18 @@
+{
+  "domain": "sinilink",
+  "name": "Sinilink Amplifier",
+  "requirements": [
+      "crccheck==1.1"
+  ],
+  "bluetooth": [
+    {
+      "local_name": "Sinilink-APP"
+    }
+  ],
+  "dependencies": ["bluetooth_adapters"],
+  "iot_class": "assumed_state",
+  "integration_type": "device",
+  "version": "1.0.1",
+  "config_flow": true,
+  "loggers": ["custom_components.sinilink"]
+}
