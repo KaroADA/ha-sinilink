@@ -1,6 +1,7 @@
 {
   "domain": "sinilink",
   "name": "Sinilink Amplifier Integration",
+  "codeowners": ["@KaroADA"],
   "requirements": [
       "crccheck==1.1"
   ],
