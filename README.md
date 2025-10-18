@@ -17,6 +17,12 @@ This is a custom integration for Home Assistant to control Sinilink Bluetooth au
 
 ### Method 1: HACS (Recommended)
 
+Click the button below to add this repository to HACS:
+
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=KaroADA&repository=ha-sinilink&category=integration)
+
+**Manual HACS Installation:**
+
 1.  Go to your HACS (Home Assistant Community Store) panel.
 2.  Go to **Integrations** and click the three-dot menu in the top right.
 3.  Select **Custom repositories**.
