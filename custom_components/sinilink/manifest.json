@@ -1,6 +1,6 @@
 {
   "domain": "sinilink",
-  "name": "Sinilink Amplifier",
+  "name": "Sinilink Amplifier Integration",
   "requirements": [
       "crccheck==1.1"
   ],
