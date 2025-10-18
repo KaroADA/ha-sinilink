@@ -18,6 +18,7 @@ from homeassistant.core import HomeAssistant
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from .sinilink import SinilinkInstance
 
@@ -58,7 +59,7 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
     async_add_entities([SinilinkAmplifier(amp)])
 
 
-class SinilinkAmplifier(MediaPlayerEntity):
+class SinilinkAmplifier(MediaPlayerEntity, RestoreEntity):
     """Representation of a Sinilink Amplifier."""
 
     _attr_device_class = MediaPlayerDeviceClass.RECEIVER
@@ -83,7 +84,7 @@ class SinilinkAmplifier(MediaPlayerEntity):
         self._source_list = {"AUX", "Bluetooth"}
         self._source = self.source_list[0]
         self._muted = False
-        self._media_volume_level = 0.2
+        self._media_volume_level = 0.0
         self._volume_max = 255
 
     @property
@@ -144,6 +145,42 @@ class SinilinkAmplifier(MediaPlayerEntity):
 
         self._media_volume_level = self._amp.volume / self._volume_max
         return True
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last known state on HA startup."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if not last_state:
+            return
+
+        # Restore power
+        is_on = last_state.state == MediaPlayerState.ON
+        self._attr_state = MediaPlayerState.ON if is_on else MediaPlayerState.OFF
+
+        # Restore volume
+        vol_level = last_state.attributes.get("volume_level")
+        if isinstance(vol_level, (int, float)):
+            self._media_volume_level = max(0.0, min(1.0, float(vol_level)))
+
+        # Restore mute
+        muted = last_state.attributes.get("is_volume_muted")
+        if muted is None:
+            muted = last_state.attributes.get("volume_muted")
+        if isinstance(muted, bool):
+            self._muted = muted
+
+        # Restore source if available
+        src = last_state.attributes.get("source")
+        if isinstance(src, str) and src in self.source_list:
+            self._source = src
+
+        # Cache into BLE instance without I/O
+        self._amp.set_cached_state(
+            is_on=is_on,
+            volume=int(self._media_volume_level * self._volume_max),
+        )
+
+        self.async_write_ha_state()
 
     async def async_turn_off(self):
         """Turn AMP power off."""

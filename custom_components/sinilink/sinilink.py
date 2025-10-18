@@ -77,6 +77,16 @@ class SinilinkInstance:
         """Return the current volume."""
         return self._volume
 
+    def set_cached_state(self, is_on: bool | None = None, volume: int | None = None) -> None:
+        """Cache state without performing BLE I/O (used on HA startup)."""
+        if is_on is not None:
+            self._is_on = bool(is_on)
+        if volume is not None:
+            try:
+                self._volume = int(volume)
+            except (TypeError, ValueError):
+                pass
+
     async def set_volume(self, intensity: int):
         """Set the volume of the amplifier."""
         volume = int(intensity / 5)
