@@ -3,6 +3,7 @@ import asyncio
 import logging
 
 from bleak import BleakClient, BleakScanner
+from bleak_retry_connector import establish_connection
 from bleak.exc import BleakError
 from crccheck.crc import Crc8Maxim
 
@@ -61,6 +62,12 @@ class SinilinkInstance:
                 _LOGGER.error("Failed to reconnect to %s after write error", self._mac)
         except Exception as e:
             _LOGGER.error("Unexpected error during write to %s: %s", self._mac, e)
+
+    def _on_disconnected(self, client: BleakClient) -> None:
+        """Callback called on disconnection."""
+        _LOGGER.debug("%s: Disconnected", self._mac)
+        self._device = None
+        self._is_on = False
 
     @property
     def mac(self):
@@ -143,50 +150,24 @@ class SinilinkInstance:
             _LOGGER.debug("Already connected to %s", self._mac)
             return True
 
-        ble_device = bluetooth.async_ble_device_from_address(self.hass, str(self._mac), connectable=True)
+        ble_device = bluetooth.async_ble_device_from_address(self.hass, self._mac, connectable=True)
         if not ble_device:
             _LOGGER.error("Device with MAC %s not found by Home Assistant Bluetooth", self._mac)
-            if self._device:
-                try:
-                    if self._device.is_connected:
-                        await self._device.disconnect()
-                except BleakError:
-                    pass
-                except Exception:
-                    pass
-                self._device = None
             return False
+           
+        self._device = await establish_connection(
+                BleakClient,
+                ble_device,
+                self._mac,
+                disconnected_callback=self._on_disconnected,
+                max_attempts=5,
+        )
 
-        _LOGGER.debug("Found BLEDevice for %s: %s (%s)", self._mac, ble_device.name, ble_device.address)
-        
-        if not ble_device.address:
-            _LOGGER.error("BLEDevice for %s has no address. Cannot connect", self._mac)
-            self._device = None
-            return False
+        if self._device and self._device.is_connected:
+            _LOGGER.info("Successfully connected to %s", self._mac)
+            return True
 
-        self._device = BleakClient(ble_device)
-
-        try:
-            await self._device.connect(timeout=20)
-            await asyncio.sleep(1)
-            if self._device.is_connected:
-                _LOGGER.info("Successfully connected to %s", self._mac)
-                return True
-            
-            _LOGGER.error("Connection attempt to %s finished, but device is not connected", self._mac)
-        except BleakError as e:
-            _LOGGER.error("BleakError during connect to %s: %s", self._mac, e)
-        except Exception as e:
-            _LOGGER.error("Unexpected error during connect to %s: %s", self._mac, e)
-        
-        if self._device:
-            try:
-                await self._device.disconnect()
-            except BleakError:
-                pass
-            except Exception:
-                pass
-        self._device = None
+        _LOGGER.error("Failed to connect to %s", self._mac)
         return False
 
     async def disconnect(self):

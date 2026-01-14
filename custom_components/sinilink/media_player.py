@@ -194,7 +194,7 @@ class SinilinkAmplifier(MediaPlayerEntity, RestoreEntity):
 
     async def async_set_volume_level(self, volume: float):
         """Set AMP volume (0 to 1)."""
-        _LOGGER.warning("Set volume %s, %s", volume, int(volume * self._volume_max))
+        _LOGGER.debug("Set volume %s, %s", volume, int(volume * self._volume_max))
 
         await self._amp.set_volume(int(volume * self._volume_max))
         self._media_volume_level = volume
@@ -208,7 +208,7 @@ class SinilinkAmplifier(MediaPlayerEntity, RestoreEntity):
 
     async def async_select_source(self, source):
         """Select input source."""
-        _LOGGER.warning("Set source %s", source)
+        _LOGGER.debug("Set source %s", source)
         self._source = source
         if source == "AUX":
             await self._amp.aux()
