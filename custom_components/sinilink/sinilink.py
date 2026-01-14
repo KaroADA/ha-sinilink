@@ -13,14 +13,6 @@ from homeassistant.core import HomeAssistant
 WRITE_UUID = "0000ae10-0000-1000-8000-00805f9b34fb"
 _LOGGER = logging.getLogger(__name__)
 
-
-async def discover():
-    """Discover Bluetooth LE devices."""
-    devices = await BleakScanner.discover()
-    _LOGGER.debug("Discovered devices: %s", [{"address": device.address, "name": device.name} for device in devices])
-    return [device for device in devices if device.name.startswith("Sinilink-APP")]
-
-
 class SinilinkInstance:
     """Instance of a Sinilink amplifier."""
 
