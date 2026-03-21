@@ -73,8 +73,11 @@ class SinilinkAmplifier(MediaPlayerEntity, RestoreEntity):
         | MediaPlayerEntityFeature.VOLUME_MUTE
         | MediaPlayerEntityFeature.VOLUME_SET
         | MediaPlayerEntityFeature.VOLUME_STEP
+        | MediaPlayerEntityFeature.PLAY
+        | MediaPlayerEntityFeature.PAUSE
+        | MediaPlayerEntityFeature.NEXT_TRACK
+        | MediaPlayerEntityFeature.PREVIOUS_TRACK
     )
-
     def __init__(self, amp):
         """Initialize a SinilinkAmplifier."""
         self._amp = SinilinkInstance(amp["mac"], amp["hass"])
@@ -85,7 +88,9 @@ class SinilinkAmplifier(MediaPlayerEntity, RestoreEntity):
         self._source = self.source_list[0]
         self._muted = False
         self._media_volume_level = 0.0
+        self._saved_volume_level = 0.1
         self._volume_max = 255
+        self._amp.register_callback(self.async_schedule_update_ha_state)
 
     @property
     def name(self) -> str:
@@ -100,20 +105,25 @@ class SinilinkAmplifier(MediaPlayerEntity, RestoreEntity):
     @property
     def source(self) -> str:
         """Return the source."""
-        return self._source
+        return getattr(self._amp, "_source", self.source_list[0])
 
     @property
     def state(self) -> MediaPlayerState | None:
         """Return the state of the media player."""
-        if self._amp.is_on:
-            return MediaPlayerState.ON
-        
-        return MediaPlayerState.OFF
+        if not self._amp.is_on:
+            return MediaPlayerState.OFF
+            
+        if getattr(self._amp, "_is_playing", False):
+            return MediaPlayerState.PLAYING
+            
+        return MediaPlayerState.PAUSED
 
     @property
     def volume_level(self):
         """Return volume level of the media player (0..1)."""
-        return self._media_volume_level
+        if self._amp.volume is not None:
+            return self._amp.volume / self._volume_max
+        return 0.0
         
     @property
     def is_volume_muted(self):
@@ -135,16 +145,6 @@ class SinilinkAmplifier(MediaPlayerEntity, RestoreEntity):
     def unique_id(self):
         """Return a unique ID for this entity."""
         return self._amp.mac
-
-    def update(self) -> None:
-        """Update the state of the media player."""
-        if self._amp.is_on:
-            self._attr_state = MediaPlayerState.ON
-        else:
-            self._attr_state = MediaPlayerState.OFF
-
-        self._media_volume_level = self._amp.volume / self._volume_max
-        return True
 
     async def async_added_to_hass(self) -> None:
         """Restore last known state on HA startup."""
@@ -202,7 +202,13 @@ class SinilinkAmplifier(MediaPlayerEntity, RestoreEntity):
 
     async def async_mute_volume(self, mute: bool):
         """Mute AMP."""
-        await self._amp.set_volume(int(self._media_volume_level * self._volume_max) * int(mute))
+        if mute:
+            await self._amp.pause()
+            _LOGGER.debug("Mute")
+        else:
+            await self._amp.play()
+            _LOGGER.debug("Unmute")
+
         self._muted = mute
         self.async_schedule_update_ha_state()
 
@@ -215,4 +221,24 @@ class SinilinkAmplifier(MediaPlayerEntity, RestoreEntity):
         else:
             await self._amp.bluetooth()
 
+        self.async_schedule_update_ha_state()
+
+    async def async_media_play(self):
+        """Send play command."""
+        await self._amp.play()
+        self.async_schedule_update_ha_state()
+
+    async def async_media_pause(self):
+        """Send pause command."""
+        await self._amp.pause()
+        self.async_schedule_update_ha_state()
+
+    async def async_media_next_track(self):
+        """Send next track command."""
+        await self._amp.next_track()
+        self.async_schedule_update_ha_state()
+
+    async def async_media_previous_track(self):
+        """Send previous track command."""
+        await self._amp.previous_track()
         self.async_schedule_update_ha_state()
