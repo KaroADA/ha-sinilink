@@ -65,7 +65,7 @@ class SinilinkAmplifier(MediaPlayerEntity, RestoreEntity):
     _attr_device_class = MediaPlayerDeviceClass.RECEIVER
     _attr_has_entity_name = True
     _attr_icon = "mdi:audio-video"
-    _attr_should_poll = False
+    _attr_should_poll = True
     _attr_supported_features = (
         MediaPlayerEntityFeature.SELECT_SOURCE
         | MediaPlayerEntityFeature.TURN_OFF
@@ -241,4 +241,14 @@ class SinilinkAmplifier(MediaPlayerEntity, RestoreEntity):
     async def async_media_previous_track(self):
         """Send previous track command."""
         await self._amp.previous_track()
+        self.async_schedule_update_ha_state()
+
+    async def async_update(self) -> None:
+        """Watchdog to maintain connection and update state."""
+        if getattr(self._amp, "_device", None) and self._amp._device.is_connected:
+            return
+
+        _LOGGER.debug("Attempting to connect to %s", self._amp.mac)
+        await self._amp.connect()
+        
         self.async_schedule_update_ha_state()

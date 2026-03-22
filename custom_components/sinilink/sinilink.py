@@ -26,6 +26,7 @@ class SinilinkInstance:
         self._volume = 0
         self._source = "AUX"
         self._is_playing = False
+        self._saved_volume = 35
 
     def register_callback(self, callback):
         """Register a callback to be called on state updates."""
@@ -149,10 +150,10 @@ class SinilinkInstance:
         """Turn on the amplifier."""
         self._is_on = True
 
-        volume = 7
+        if self._saved_volume <= 0:
+            self._saved_volume = 35
 
-        if self._volume is not None:
-            volume = int(self._volume / 5)
+        volume = int(self._saved_volume / 5)
 
         header = bytes.fromhex("7e0f1d")
         command = (volume).to_bytes(1, 'big')
@@ -164,6 +165,8 @@ class SinilinkInstance:
     async def turn_off(self):
         """Turn off the amplifier."""
         self._is_on = False
+
+        self._saved_volume = self._volume
 
         header = bytes.fromhex("7e0f1d")
         command = bytes.fromhex("00")
