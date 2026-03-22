@@ -5,7 +5,6 @@ import logging
 from bleak import BleakClient, BleakScanner
 from bleak_retry_connector import establish_connection
 from bleak.exc import BleakError
-from crccheck.crc import Crc8Maxim
 
 from homeassistant.components import bluetooth
 from homeassistant.core import HomeAssistant
@@ -42,10 +41,10 @@ class SinilinkInstance:
                 _LOGGER.error("Failed to connect to %s before sending data. Aborting send", self._mac)
                 return
 
-        crcinst = Crc8Maxim()
-        crcinst.process(data)
-        payload = data + crcinst.finalbytes()
-        
+        checksum = sum(data) & 0xFF
+        payload = data + bytes([checksum])
+        _LOGGER.debug("Final payload to send to %s: %s", self._mac, payload.hex())
+
         try:
             await self._device.write_gatt_char(WRITE_UUID, payload)
         except BleakError as e:
@@ -141,9 +140,8 @@ class SinilinkInstance:
         header = bytes.fromhex("7e0f1d")
         command = (volume).to_bytes(1, 'big')
         params = bytes.fromhex("00000000000000000000")
-        sufix = (volume + 170).to_bytes(1, 'big')
 
-        await self._send(header + command + params + sufix)
+        await self._send(header + command + params)
         self._volume = intensity
 
     async def turn_on(self):
@@ -158,9 +156,8 @@ class SinilinkInstance:
         header = bytes.fromhex("7e0f1d")
         command = (volume).to_bytes(1, 'big')
         params = bytes.fromhex("00000000000000000000")
-        sufix = (volume + 170).to_bytes(1, 'big')
 
-        await self._send(header + command + params + sufix)
+        await self._send(header + command + params)
 
     async def turn_off(self):
         """Turn off the amplifier."""
@@ -171,23 +168,22 @@ class SinilinkInstance:
         header = bytes.fromhex("7e0f1d")
         command = bytes.fromhex("00")
         params = bytes.fromhex("00000000000000000000")
-        sufix = bytes.fromhex("aa")
 
-        await self._send(header + command + params + sufix)
+        await self._send(header + command + params)
 
     async def bluetooth(self):
         """Switch to Bluetooth source."""
-        command = bytes.fromhex("7e05140097")
+        command = bytes.fromhex("7e051400")
         await self._send(command)
 
     async def aux(self):
         """Switch to AUX source."""
-        command = bytes.fromhex("7e05160099")
+        command = bytes.fromhex("7e051600")
         await self._send(command)
 
     async def play_pause(self):
         """Toggle Play/Pause command."""
-        command = bytes.fromhex("7e05010084")
+        command = bytes.fromhex("7e050100")
         await self._send(command)
 
     async def play(self):
@@ -202,12 +198,12 @@ class SinilinkInstance:
 
     async def next_track(self):
         """Send Next Track command."""
-        command = bytes.fromhex("7e0508008b")
+        command = bytes.fromhex("7e050800")
         await self._send(command)
 
     async def previous_track(self):
         """Send Previous Track command."""
-        command = bytes.fromhex("7e0507008a")
+        command = bytes.fromhex("7e050700")
         await self._send(command)
 
     async def connect(self) -> bool:
