@@ -26,13 +26,23 @@ class SinilinkInstance:
         self._source = "AUX"
         self._is_playing = False
         self._saved_volume = 35
+        self._prompt_tone = True
+        self._update_callbacks = []
+        self._connect_lock = asyncio.Lock()
+        self._write_lock = asyncio.Lock()
+        self._buffer = bytearray()
 
     def register_callback(self, callback):
         """Register a callback to be called on state updates."""
-        self._update_callback = callback
+        if callback not in self._update_callbacks:
+            self._update_callbacks.append(callback)
 
     async def _send(self, data: bytearray):
         """Send data to the amplifier."""
+        checksum = sum(data) & 0xFF
+        payload = bytearray(data)
+        payload.append(checksum)
+
         _LOGGER.debug("Preparing to send data to %s: %s", self._mac, data.hex())
         
         if not self._device or not self._device.is_connected:
@@ -41,66 +51,96 @@ class SinilinkInstance:
                 _LOGGER.error("Failed to connect to %s before sending data. Aborting send", self._mac)
                 return
 
-        checksum = sum(data) & 0xFF
-        payload = data + bytes([checksum])
-        _LOGGER.debug("Final payload to send to %s: %s", self._mac, payload.hex())
-
-        try:
-            await self._device.write_gatt_char(WRITE_UUID, payload)
-        except BleakError as e:
-            _LOGGER.warning("BleakError during write to %s: %s. Attempting to reconnect and retry", self._mac, e)
-            if await self.connect():
-                _LOGGER.debug("Reconnected to %s successfully. Retrying write", self._mac)
-                try:
-                    await self._device.write_gatt_char(WRITE_UUID, payload)
-                except BleakError as e_retry:
-                    _LOGGER.error("BleakError on retry write to %s after reconnect: %s", self._mac, e_retry)
-                except Exception as e_retry_other:
-                    _LOGGER.error("Unexpected error on retry write to %s after reconnect: %s", self._mac, e_retry_other)
-            else:
-                _LOGGER.error("Failed to reconnect to %s after write error", self._mac)
-        except Exception as e:
-            _LOGGER.error("Unexpected error during write to %s: %s", self._mac, e)
+        async with self._write_lock:
+            _LOGGER.debug("Final payload to send to %s: %s", self._mac, payload.hex())
+            try:
+                await self._device.write_gatt_char(WRITE_UUID, payload)
+                await asyncio.sleep(0.1) # Debounce writes to prevent dropping
+            except BleakError as e:
+                _LOGGER.warning("BleakError during write to %s: %s. Attempting to reconnect and retry", self._mac, e)
+                if await self.connect():
+                    _LOGGER.debug("Reconnected to %s successfully. Retrying write", self._mac)
+                    try:
+                        await self._device.write_gatt_char(WRITE_UUID, payload)
+                        await asyncio.sleep(0.1)
+                    except BleakError as e_retry:
+                        _LOGGER.error("BleakError on retry write to %s after reconnect: %s", self._mac, e_retry)
+                    except Exception as e_retry_other:
+                        _LOGGER.error("Unexpected error on retry write to %s after reconnect: %s", self._mac, e_retry_other)
+                else:
+                    _LOGGER.error("Failed to reconnect to %s after write error", self._mac)
+            except Exception as e:
+                _LOGGER.error("Unexpected error during write to %s: %s", self._mac, e)
 
     async def _notification_handler(self, sender: int, data: bytearray):
-        """Handle notifications from the amplifier."""
-
+        """Handle incoming notifications with robust buffering."""
         hex_string = ''.join(format(x, ' 03x') for x in data)
-        _LOGGER.debug("Notification from %s: %s", self._mac, hex_string)
+        _LOGGER.debug("RAW Notification from %s: %s", self._mac, hex_string)
 
-        if len(data) >= 8 and data[0] == 0x7e:
-            packet_type = data[1]
+        self._buffer.extend(data)
+        
+        while len(self._buffer) >= 8:
+            if self._buffer[0] != 0x7e:
+                idx = self._buffer.find(0x7e)
+                if idx == -1:
+                    _LOGGER.debug("Dropping junk data: %s", self._buffer.hex())
+                    self._buffer.clear()
+                    break
+                _LOGGER.debug("Dropping %d bytes of junk data before next packet", idx)
+                self._buffer = self._buffer[idx:]
+                if len(self._buffer) < 8:
+                    break
 
-            if packet_type == 0x10:
+            packet_len = self._buffer[1]
+            if len(self._buffer) < packet_len:
+                _LOGGER.debug("Incomplete packet, buffering... (have %d, need %d)", len(self._buffer), packet_len)
+                break
+
+            packet = self._buffer[:packet_len]
+            self._buffer = self._buffer[packet_len:]
+            
+            _LOGGER.debug("Parsed complete packet: %s", packet.hex())
+            self._process_packet(packet)
+
+    def _process_packet(self, data: bytearray):
+        """Process a complete unfragmented packet."""
+        packet_type = data[1]
+
+        if packet_type == 0x10:
+            if len(data) >= 6 and data[2] == 0x1f:
+                tone = data[3]
+                self._prompt_tone = (tone == 0x01)
+                _LOGGER.debug("Prompt tone update from %s: %s (Raw byte: %02x)", self._mac, self._prompt_tone, tone)
+                
                 volume = data[5] * 5
                 self._volume = volume
                 self._is_on = (volume > 0)
                 _LOGGER.debug("Volume update from %s: %d", self._mac, volume)
-            elif packet_type == 0x0f:
-                source_byte = data[4]
-                if source_byte == 0x14:
-                    self._source = "Bluetooth"
-                    _LOGGER.debug("Source update from %s: Bluetooth", self._mac)
-                elif source_byte == 0x16:
-                    self._source = "AUX"
-                    _LOGGER.debug("Source update from %s: AUX", self._mac)
+        elif packet_type == 0x0f:
+            source_byte = data[4]
+            if source_byte == 0x14:
+                self._source = "Bluetooth"
+                _LOGGER.debug("Source update from %s: Bluetooth", self._mac)
+            elif source_byte == 0x16:
+                self._source = "AUX"
+                _LOGGER.debug("Source update from %s: AUX", self._mac)
 
-                status_byte = data[5]
-                if status_byte == 0x01:
-                    if self._is_playing:
-                        self._is_playing = False
-                        _LOGGER.debug("Playback status update from %s: Paused", self._mac)
-                elif status_byte == 0x02:
-                    if not self._is_playing:
-                        self._is_playing = True
-                        _LOGGER.debug("Playback status update from %s: Playing", self._mac)
+            status_byte = data[5]
+            if status_byte == 0x01:
+                if self._is_playing:
+                    self._is_playing = False
+                    _LOGGER.debug("Playback status update from %s: Paused", self._mac)
+            elif status_byte == 0x02:
+                if not self._is_playing:
+                    self._is_playing = True
+                    _LOGGER.debug("Playback status update from %s: Playing", self._mac)
 
-                volume = data[6] * 5
-                self._volume = volume
-                _LOGGER.debug("Volume update from %s: %d", self._mac, volume)
+            volume = data[6] * 5
+            self._volume = volume
+            _LOGGER.debug("Volume update from %s: %d", self._mac, volume)
 
-            if hasattr(self, '_update_callback') and self._update_callback:
-                self._update_callback()
+        for callback in self._update_callbacks:
+            callback()
 
     def _on_disconnected(self, client: BleakClient) -> None:
         """Callback called on disconnection."""
@@ -122,6 +162,11 @@ class SinilinkInstance:
     def volume(self):
         """Return the current volume."""
         return self._volume
+
+    @property
+    def prompt_tone(self):
+        """Return the prompt tone state."""
+        return self._prompt_tone
 
     def set_cached_state(self, is_on: bool | None = None, volume: int | None = None) -> None:
         """Cache state without performing BLE I/O (used on HA startup)."""
@@ -206,40 +251,59 @@ class SinilinkInstance:
         command = bytes.fromhex("7e050700")
         await self._send(command)
 
+    async def request_system_settings(self):
+        """Request system settings like prompt tone and password."""
+        # The official app sends this AA handshake to unlock notifications
+        await self._send(bytes.fromhex("7e07aa03d902"))
+        await asyncio.sleep(0.2)
+        await self._send(bytes.fromhex("7e051e00"))
+        await asyncio.sleep(0.2)
+        await self._send(bytes.fromhex("7e051f00"))
+        await asyncio.sleep(0.2)
+        await self._send(bytes.fromhex("7e052000"))
+
+    async def toggle_prompt_tone(self):
+        """Toggle the prompt tone."""
+        command = bytes.fromhex("7e051800")
+        await self._send(command)
+
     async def connect(self) -> bool:
         """Connect to the amplifier."""
-        _LOGGER.debug("Attempting to connect to %s", self._mac)
-        if self._device and self._device.is_connected:
-            _LOGGER.debug("Already connected to %s", self._mac)
-            return True
+        async with self._connect_lock:
+            _LOGGER.debug("Attempting to connect to %s", self._mac)
+            if self._device and self._device.is_connected:
+                _LOGGER.debug("Already connected to %s", self._mac)
+                return True
 
-        ble_device = bluetooth.async_ble_device_from_address(self.hass, self._mac, connectable=True)
-        if not ble_device:
-            _LOGGER.error("Device with MAC %s not found by Home Assistant Bluetooth", self._mac)
+            ble_device = bluetooth.async_ble_device_from_address(self.hass, self._mac, connectable=True)
+            if not ble_device:
+                _LOGGER.error("Device with MAC %s not found by Home Assistant Bluetooth", self._mac)
+                return False
+               
+            self._device = await establish_connection(
+                    BleakClient,
+                    ble_device,
+                    self._mac,
+                    disconnected_callback=self._on_disconnected,
+                    max_attempts=5,
+            )
+
+            if self._device and self._device.is_connected:
+                _LOGGER.info("Successfully connected to %s", self._mac)
+
+                try:
+                    await self._device.start_notify(NOTIFY_UUID, self._notification_handler)
+                    await asyncio.sleep(0.5)
+                    self.hass.loop.create_task(self.request_system_settings())
+                except BleakError as e:
+                    _LOGGER.warning("BleakError during start_notify for %s: %s", self._mac, e)
+                except Exception as e:
+                    _LOGGER.warning("Unexpected error during start_notify for %s: %s", self._mac, e)
+
+                return True
+
+            _LOGGER.error("Failed to connect to %s", self._mac)
             return False
-           
-        self._device = await establish_connection(
-                BleakClient,
-                ble_device,
-                self._mac,
-                disconnected_callback=self._on_disconnected,
-                max_attempts=5,
-        )
-
-        if self._device and self._device.is_connected:
-            _LOGGER.info("Successfully connected to %s", self._mac)
-
-            try:
-                await self._device.start_notify(NOTIFY_UUID, self._notification_handler)
-            except BleakError as e:
-                _LOGGER.warning("BleakError during start_notify for %s: %s", self._mac, e)
-            except Exception as e:
-                _LOGGER.warning("Unexpected error during start_notify for %s: %s", self._mac, e)
-
-            return True
-
-        _LOGGER.error("Failed to connect to %s", self._mac)
-        return False
 
     async def disconnect(self):
         """Disconnect from the amplifier."""

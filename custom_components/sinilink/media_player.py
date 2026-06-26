@@ -39,24 +39,24 @@ def setup_platform(
     discovery_info: DiscoveryInfoType | None = None
 ) -> None:
     """Set up the Sinilink Amp platform."""
-    amp = {
-        "name": config[CONF_NAME],
-        "mac": config[CONF_MAC],
-        "hass": hass
-    }
+    name = config[CONF_NAME]
+    mac = config[CONF_MAC]
     
-    add_entities([SinilinkAmplifier(amp)])
+    hass.data.setdefault(DOMAIN, {})
+    if mac not in hass.data[DOMAIN]:
+        hass.data[DOMAIN][mac] = SinilinkInstance(mac, hass)
+        
+    add_entities([SinilinkAmplifier(name, hass.data[DOMAIN][mac])])
 
 
 async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
     """Set up Sinilink media player from a config entry."""
     data = entry.data
-    amp = {
-        "name": data.get(CONF_NAME, "Sinilink Amplifier"),
-        "mac": data[CONF_MAC],
-        "hass": hass
-    }
-    async_add_entities([SinilinkAmplifier(amp)])
+    name = data.get(CONF_NAME, "Sinilink Amplifier")
+    mac = data[CONF_MAC]
+    
+    instance = hass.data[DOMAIN][mac]
+    async_add_entities([SinilinkAmplifier(name, instance)])
 
 
 class SinilinkAmplifier(MediaPlayerEntity, RestoreEntity):
@@ -78,11 +78,11 @@ class SinilinkAmplifier(MediaPlayerEntity, RestoreEntity):
         | MediaPlayerEntityFeature.NEXT_TRACK
         | MediaPlayerEntityFeature.PREVIOUS_TRACK
     )
-    def __init__(self, amp):
+    def __init__(self, name, amp_instance):
         """Initialize a SinilinkAmplifier."""
-        self._amp = SinilinkInstance(amp["mac"], amp["hass"])
-        self._name = amp["name"]
-        self._hass = amp["hass"]
+        self._amp = amp_instance
+        self._name = name
+        self._hass = amp_instance.hass
         self._attr_state = MediaPlayerState.OFF
         self._source_list = {"AUX", "Bluetooth"}
         self._source = self.source_list[0]
