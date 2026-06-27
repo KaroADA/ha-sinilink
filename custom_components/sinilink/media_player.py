@@ -73,6 +73,7 @@ class SinilinkAmplifier(MediaPlayerEntity, RestoreEntity):
         | MediaPlayerEntityFeature.VOLUME_MUTE
         | MediaPlayerEntityFeature.VOLUME_SET
         | MediaPlayerEntityFeature.VOLUME_STEP
+        | MediaPlayerEntityFeature.SELECT_SOUND_MODE
         | MediaPlayerEntityFeature.PLAY
         | MediaPlayerEntityFeature.PAUSE
         | MediaPlayerEntityFeature.NEXT_TRACK
@@ -106,6 +107,16 @@ class SinilinkAmplifier(MediaPlayerEntity, RestoreEntity):
     def source(self) -> str:
         """Return the source."""
         return getattr(self._amp, "_source", self.source_list[0])
+
+    @property
+    def sound_mode_list(self):
+        """Return a list of available sound modes."""
+        return ["Normal", "Rock", "Pop", "Classic", "Jazz", "Country"]
+
+    @property
+    def sound_mode(self):
+        """Return the current sound mode."""
+        return self._amp.eq_mode
 
     @property
     def state(self) -> MediaPlayerState | None:
@@ -174,10 +185,16 @@ class SinilinkAmplifier(MediaPlayerEntity, RestoreEntity):
         if isinstance(src, str) and src in self.source_list:
             self._source = src
 
+        # Restore sound mode if available
+        snd = last_state.attributes.get("sound_mode")
+        if not isinstance(snd, str) or snd not in self.sound_mode_list:
+            snd = None
+
         # Cache into BLE instance without I/O
         self._amp.set_cached_state(
             is_on=is_on,
             volume=int(round(self._media_volume_level * self._volume_max)),
+            eq_mode=snd,
         )
 
         self.async_write_ha_state()
@@ -234,6 +251,12 @@ class SinilinkAmplifier(MediaPlayerEntity, RestoreEntity):
         else:
             await self._amp.bluetooth()
 
+        self.async_schedule_update_ha_state()
+
+    async def async_select_sound_mode(self, sound_mode):
+        """Select sound mode."""
+        _LOGGER.debug("Set sound mode %s", sound_mode)
+        await self._amp.set_eq_mode(sound_mode)
         self.async_schedule_update_ha_state()
 
     async def async_media_play(self):

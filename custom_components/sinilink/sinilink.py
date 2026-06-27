@@ -27,6 +27,7 @@ class SinilinkInstance:
         self._is_playing = False
         self._saved_volume = 7
         self._prompt_tone = True
+        self._eq_mode = "Normal"
         self.volume_step = 2
         self._update_callbacks = []
         self._connect_lock = asyncio.Lock()
@@ -144,6 +145,13 @@ class SinilinkInstance:
             self._volume = volume
             _LOGGER.debug("Volume update from %s: %d", self._mac, volume)
 
+            if len(data) > 8:
+                eq_byte = data[8]
+                eq_map = {0x09: "Normal", 0x0a: "Rock", 0x0b: "Pop", 0x0c: "Classic", 0x0d: "Jazz", 0x0e: "Country"}
+                if eq_byte in eq_map:
+                    self._eq_mode = eq_map[eq_byte]
+                    _LOGGER.debug("EQ mode update from %s: %s", self._mac, self._eq_mode)
+
         for callback in self._update_callbacks:
             callback()
 
@@ -173,7 +181,12 @@ class SinilinkInstance:
         """Return the prompt tone state."""
         return self._prompt_tone
 
-    def set_cached_state(self, is_on: bool | None = None, volume: int | None = None) -> None:
+    @property
+    def eq_mode(self):
+        """Return the current EQ mode."""
+        return self._eq_mode
+
+    def set_cached_state(self, is_on: bool | None = None, volume: int | None = None, eq_mode: str | None = None) -> None:
         """Cache state without performing BLE I/O (used on HA startup)."""
         if is_on is not None:
             self._is_on = bool(is_on)
@@ -182,6 +195,8 @@ class SinilinkInstance:
                 self._volume = int(volume)
             except (TypeError, ValueError):
                 pass
+        if eq_mode is not None:
+            self._eq_mode = str(eq_mode)
 
     async def set_volume(self, intensity: int):
         """Set the volume of the amplifier."""
@@ -228,6 +243,13 @@ class SinilinkInstance:
         """Switch to AUX source."""
         command = bytes.fromhex("7e051600")
         await self._send(command)
+
+    async def set_eq_mode(self, mode: str):
+        """Set EQ mode."""
+        eq_map = {"Normal": 0x09, "Rock": 0x0a, "Pop": 0x0b, "Classic": 0x0c, "Jazz": 0x0d, "Country": 0x0e}
+        if mode in eq_map:
+            command = bytearray([0x7e, 0x05, eq_map[mode], 0x00])
+            await self._send(command)
 
     async def play_pause(self):
         """Toggle Play/Pause command."""
