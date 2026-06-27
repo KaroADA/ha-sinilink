@@ -25,8 +25,9 @@ class SinilinkInstance:
         self._volume = 0
         self._source = "AUX"
         self._is_playing = False
-        self._saved_volume = 35
+        self._saved_volume = 7
         self._prompt_tone = True
+        self.volume_step = 2
         self._update_callbacks = []
         self._connect_lock = asyncio.Lock()
         self._write_lock = asyncio.Lock()
@@ -112,7 +113,9 @@ class SinilinkInstance:
                 self._prompt_tone = (tone == 0x01)
                 _LOGGER.debug("Prompt tone update from %s: %s (Raw byte: %02x)", self._mac, self._prompt_tone, tone)
                 
-                volume = data[5] * 5
+                volume = data[5]
+                if volume > 0:
+                    self._saved_volume = volume
                 self._volume = volume
                 self._is_on = (volume > 0)
                 _LOGGER.debug("Volume update from %s: %d", self._mac, volume)
@@ -135,7 +138,9 @@ class SinilinkInstance:
                     self._is_playing = True
                     _LOGGER.debug("Playback status update from %s: Playing", self._mac)
 
-            volume = data[6] * 5
+            volume = data[6]
+            if volume > 0:
+                self._saved_volume = volume
             self._volume = volume
             _LOGGER.debug("Volume update from %s: %d", self._mac, volume)
 
@@ -180,7 +185,7 @@ class SinilinkInstance:
 
     async def set_volume(self, intensity: int):
         """Set the volume of the amplifier."""
-        volume = int(intensity / 5)
+        volume = int(intensity)
 
         header = bytes.fromhex("7e0f1d")
         command = (volume).to_bytes(1, 'big')
@@ -194,9 +199,9 @@ class SinilinkInstance:
         self._is_on = True
 
         if self._saved_volume <= 0:
-            self._saved_volume = 35
+            self._saved_volume = 7
 
-        volume = int(self._saved_volume / 5)
+        volume = int(self._saved_volume)
 
         header = bytes.fromhex("7e0f1d")
         command = (volume).to_bytes(1, 'big')
@@ -207,8 +212,6 @@ class SinilinkInstance:
     async def turn_off(self):
         """Turn off the amplifier."""
         self._is_on = False
-
-        self._saved_volume = self._volume
 
         header = bytes.fromhex("7e0f1d")
         command = bytes.fromhex("00")

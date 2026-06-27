@@ -89,7 +89,7 @@ class SinilinkAmplifier(MediaPlayerEntity, RestoreEntity):
         self._muted = False
         self._media_volume_level = 0.0
         self._saved_volume_level = 0.1
-        self._volume_max = 255
+        self._volume_max = 28
         self._amp.register_callback(self.async_schedule_update_ha_state)
 
     @property
@@ -177,7 +177,7 @@ class SinilinkAmplifier(MediaPlayerEntity, RestoreEntity):
         # Cache into BLE instance without I/O
         self._amp.set_cached_state(
             is_on=is_on,
-            volume=int(self._media_volume_level * self._volume_max),
+            volume=int(round(self._media_volume_level * self._volume_max)),
         )
 
         self.async_write_ha_state()
@@ -194,11 +194,24 @@ class SinilinkAmplifier(MediaPlayerEntity, RestoreEntity):
 
     async def async_set_volume_level(self, volume: float):
         """Set AMP volume (0 to 1)."""
-        _LOGGER.debug("Set volume %s, %s", volume, int(volume * self._volume_max))
+        new_vol_int = int(round(volume * self._volume_max))
+        _LOGGER.debug("Set volume %s, native: %s", volume, new_vol_int)
 
-        await self._amp.set_volume(int(volume * self._volume_max))
+        await self._amp.set_volume(new_vol_int)
         self._media_volume_level = volume
         self.async_schedule_update_ha_state()
+
+    async def async_volume_up(self) -> None:
+        """Volume up the media player."""
+        native_vol = round(self.volume_level * self._volume_max)
+        new_native_vol = min(self._volume_max, native_vol + self._amp.volume_step)
+        await self.async_set_volume_level(new_native_vol / self._volume_max)
+
+    async def async_volume_down(self) -> None:
+        """Volume down the media player."""
+        native_vol = round(self.volume_level * self._volume_max)
+        new_native_vol = max(0, native_vol - self._amp.volume_step)
+        await self.async_set_volume_level(new_native_vol / self._volume_max)
 
     async def async_mute_volume(self, mute: bool):
         """Mute AMP."""
