@@ -54,9 +54,10 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
     data = entry.data
     name = data.get(CONF_NAME, "Sinilink Amplifier")
     mac = data[CONF_MAC]
+    sources = entry.options.get("sources", data.get("sources", ["AUX", "Bluetooth", "USB", "TF Card", "PC Audio"]))
     
     instance = hass.data[DOMAIN][mac]
-    async_add_entities([SinilinkAmplifier(name, instance)])
+    async_add_entities([SinilinkAmplifier(name, instance, sources)])
 
 
 class SinilinkAmplifier(MediaPlayerEntity, RestoreEntity):
@@ -79,14 +80,16 @@ class SinilinkAmplifier(MediaPlayerEntity, RestoreEntity):
         | MediaPlayerEntityFeature.NEXT_TRACK
         | MediaPlayerEntityFeature.PREVIOUS_TRACK
     )
-    def __init__(self, name, amp_instance):
+    def __init__(self, name, amp_instance, sources=None):
         """Initialize a SinilinkAmplifier."""
         self._amp = amp_instance
         self._name = name
         self._hass = amp_instance.hass
         self._attr_state = MediaPlayerState.OFF
-        self._source_list = {"AUX", "Bluetooth"}
-        self._source = self.source_list[0]
+        if sources is None:
+            sources = ["AUX", "Bluetooth", "USB", "TF Card", "PC Audio"]
+        self._source_list = set(sources)
+        self._source = getattr(self._amp, "source", "AUX")
         self._muted = False
         self._media_volume_level = 0.0
         self._saved_volume_level = 0.1
@@ -106,7 +109,7 @@ class SinilinkAmplifier(MediaPlayerEntity, RestoreEntity):
     @property
     def source(self) -> str:
         """Return the source."""
-        return getattr(self._amp, "_source", self.source_list[0])
+        return getattr(self._amp, "source", "AUX")
 
     @property
     def sound_mode_list(self):
@@ -245,12 +248,21 @@ class SinilinkAmplifier(MediaPlayerEntity, RestoreEntity):
     async def async_select_source(self, source):
         """Select input source."""
         _LOGGER.debug("Set source %s", source)
-        self._source = source
         if source == "AUX":
             await self._amp.aux()
-        else:
+        elif source == "Bluetooth":
             await self._amp.bluetooth()
+        elif source == "USB":
+            await self._amp.usb()
+        elif source == "TF Card":
+            await self._amp.tf_card()
+        elif source == "PC Audio":
+            await self._amp.pc_audio()
 
+        # Do not update self._source optimistically here.
+        # We rely on the amp's 0F notification to confirm the source change.
+        # This acts as safe dynamic discovery: if the amp doesn't support the source,
+        # it ignores the command, no notification is sent, and the UI snaps back.
         self.async_schedule_update_ha_state()
 
     async def async_select_sound_mode(self, sound_mode):

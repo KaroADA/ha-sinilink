@@ -128,6 +128,15 @@ class SinilinkInstance:
             elif source_byte == 0x16:
                 self._source = "AUX"
                 _LOGGER.debug("Source update from %s: AUX", self._mac)
+            elif source_byte == 0x04:
+                self._source = "USB"
+                _LOGGER.debug("Source update from %s: USB", self._mac)
+            elif source_byte == 0x03:
+                self._source = "TF Card"
+                _LOGGER.debug("Source update from %s: TF Card", self._mac)
+            elif source_byte == 0x15:
+                self._source = "PC Audio"
+                _LOGGER.debug("Source update from %s: PC Audio", self._mac)
 
             status_byte = data[5]
             if status_byte == 0x01:
@@ -165,6 +174,11 @@ class SinilinkInstance:
     def mac(self):
         """Return the MAC address."""
         return self._mac
+
+    @property
+    def source(self):
+        """Return the current source."""
+        return self._source
 
     @property
     def is_on(self):
@@ -242,6 +256,21 @@ class SinilinkInstance:
     async def aux(self):
         """Switch to AUX source."""
         command = bytes.fromhex("7e051600")
+        await self._send(command)
+
+    async def usb(self):
+        """Switch to USB source."""
+        command = bytes.fromhex("7e050400")
+        await self._send(command)
+
+    async def tf_card(self):
+        """Switch to TF Card source."""
+        command = bytes.fromhex("7e050300")
+        await self._send(command)
+
+    async def pc_audio(self):
+        """Switch to PC Audio source."""
+        command = bytes.fromhex("7e051500")
         await self._send(command)
 
     async def set_eq_mode(self, mode: str):

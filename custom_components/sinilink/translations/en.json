@@ -1,0 +1,22 @@
+{
+  "config": {
+    "step": {
+      "sources": {
+        "data": {
+          "auto_scan": "Auto scan device for available audio sources.",
+          "sources": "Supported Sources"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "auto_scan": "Auto scan device for available audio sources.",
+          "sources": "Supported Sources"
+        }
+      }
+    }
+  }
+}
