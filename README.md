@@ -6,7 +6,9 @@ This is a custom integration for Home Assistant to control Sinilink Bluetooth au
 
 - **Power Control**: Turn the amplifier on and off.
 - **Volume Control**: Set the volume, step volume up/down, and mute/unmute.
-- **Source Selection**: Switch between "AUX" and "Bluetooth" inputs.
+- **Source Selection**: Switch between available inputs (e.g. Bluetooth, AUX, USB, TF, Audio Card, depending on your hardware support).
+- **EQ Profile Selection**: Choose between built-in equalizer presets directly from the UI (Note: The amplifier does not support EQ in AUX mode).
+- **Prompt Tone Control**: Dedicated switch entity to turn the system tone prompts on or off.
 - **Media Playback Control**: Full support for Play, Pause, Next Track, and Previous Track (in Bluetooth mode).
 - **Real-Time Synchronization (`local_push`)**: Instantly updates the Home Assistant UI when you use the physical volume knob on the amplifier.
 
@@ -64,5 +66,6 @@ Once configured, you can use the `media_player` entity like any other. Add it to
 - **Power:** Use the `media_player.turn_on` and `media_player.turn_off` services.
 - **Volume:** Use the `media_player.volume_set`, `media_player.volume_up`, `media_player.volume_down`, and `media_player.volume_mute` services.
 - **Media Control:** `media_player.media_play`, `media_player.media_pause`, `media_player.media_next_track`, `media_player.media_previous_track`, `media_player.media_play_pause`
-- **Source:** Use the `media_player.select_source` service with `AUX` or `Bluetooth` as the source.
-
+- **Source:** Use the `media_player.select_source` service to switch between supported inputs.
+- **EQ Profiles:** Use the `media_player.select_sound_mode` service to change audio profiles.
+*   **Prompt Tone:** Use the generated `switch` entity (e.g., `switch.living_room_amp_prompt_tone`) to toggle system prompts.
