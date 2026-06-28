@@ -12,7 +12,7 @@
   "issue_tracker": "https://github.com/KaroADA/ha-sinilink/issues",
   "iot_class": "local_push",
   "integration_type": "device",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "config_flow": true,
   "loggers": ["custom_components.sinilink"]
 }
