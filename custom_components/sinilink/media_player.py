@@ -168,7 +168,7 @@ class SinilinkAmplifier(MediaPlayerEntity, RestoreEntity):
             return
 
         # Restore power
-        is_on = last_state.state == MediaPlayerState.ON
+        is_on = last_state.state in (MediaPlayerState.ON, MediaPlayerState.PLAYING, MediaPlayerState.PAUSED)
         self._attr_state = MediaPlayerState.ON if is_on else MediaPlayerState.OFF
 
         # Restore volume

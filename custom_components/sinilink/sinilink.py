@@ -1,6 +1,7 @@
 """Sinilink amplifier communication module."""
 import asyncio
 import logging
+import random
 
 from bleak import BleakClient, BleakScanner
 from bleak_retry_connector import establish_connection
@@ -39,13 +40,9 @@ class SinilinkInstance:
         if callback not in self._update_callbacks:
             self._update_callbacks.append(callback)
 
-    async def _send(self, data: bytearray):
-        """Send data to the amplifier."""
-        checksum = sum(data) & 0xFF
-        payload = bytearray(data)
-        payload.append(checksum)
-
-        _LOGGER.debug("Preparing to send data to %s: %s", self._mac, data.hex())
+    async def _send_raw(self, payload: bytearray):
+        """Send raw data to the amplifier without calculating checksum."""
+        _LOGGER.debug("Preparing to send raw data to %s", self._mac)
         
         if not self._device or not self._device.is_connected:
             _LOGGER.debug("Device %s not connected, attempting to connect", self._mac)
@@ -56,14 +53,14 @@ class SinilinkInstance:
         async with self._write_lock:
             _LOGGER.debug("Final payload to send to %s: %s", self._mac, payload.hex())
             try:
-                await self._device.write_gatt_char(WRITE_UUID, payload)
-                await asyncio.sleep(0.1) # Debounce writes to prevent dropping
+                await self._device.write_gatt_char(WRITE_UUID, payload, response=False)
+                await asyncio.sleep(0.1)
             except BleakError as e:
                 _LOGGER.warning("BleakError during write to %s: %s. Attempting to reconnect and retry", self._mac, e)
                 if await self.connect():
                     _LOGGER.debug("Reconnected to %s successfully. Retrying write", self._mac)
                     try:
-                        await self._device.write_gatt_char(WRITE_UUID, payload)
+                        await self._device.write_gatt_char(WRITE_UUID, payload, response=False)
                         await asyncio.sleep(0.1)
                     except BleakError as e_retry:
                         _LOGGER.error("BleakError on retry write to %s after reconnect: %s", self._mac, e_retry)
@@ -73,6 +70,14 @@ class SinilinkInstance:
                     _LOGGER.error("Failed to reconnect to %s after write error", self._mac)
             except Exception as e:
                 _LOGGER.error("Unexpected error during write to %s: %s", self._mac, e)
+
+    async def _send(self, data: bytearray):
+        """Send data to the amplifier (calculates and appends checksum)."""
+        checksum = sum(data) & 0xFF
+        payload = bytearray(data)
+        payload.append(checksum)
+
+        await self._send_raw(payload)
 
     async def _notification_handler(self, sender: int, data: bytearray):
         """Handle incoming notifications with robust buffering."""
@@ -237,6 +242,7 @@ class SinilinkInstance:
         params = bytes.fromhex("00000000000000000000")
 
         await self._send(header + command + params)
+        self._volume = volume
 
     async def turn_off(self):
         """Turn off the amplifier."""
@@ -307,13 +313,26 @@ class SinilinkInstance:
 
     async def request_system_settings(self):
         """Request system settings like prompt tone and password."""
-        # The official app sends this AA handshake to unlock notifications
-        await self._send(bytes.fromhex("7e07aa03d902"))
-        await asyncio.sleep(0.2)
+        token1 = 0x03
+        token2 = random.randint(1, 255)
+        data = bytearray([0x7e, 0x07, 0xaa, token1, token2])
+        total = sum(data)
+        data.append((total >> 8) & 0xFF)
+        data.append(total & 0xFF)
+        await self._send_raw(data)
+        
+        await asyncio.sleep(0.6)
+        try:
+            val = await self._device.read_gatt_char(WRITE_UUID)
+            _LOGGER.debug("Read after AA: %s", val.hex() if val else "None")
+        except Exception as e:
+            _LOGGER.debug("Read after AA failed: %s", e)
+            
+        await asyncio.sleep(0.6)
         await self._send(bytes.fromhex("7e051e00"))
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(1.2)
         await self._send(bytes.fromhex("7e051f00"))
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(1.2)
         await self._send(bytes.fromhex("7e052000"))
 
     async def toggle_prompt_tone(self):
@@ -347,7 +366,9 @@ class SinilinkInstance:
 
                 try:
                     await self._device.start_notify(NOTIFY_UUID, self._notification_handler)
-                    await asyncio.sleep(0.5)
+                    # The amplifier BLE stack needs time to process the CCCD write 
+                    # before it can start accepting data packets. Give it 2.0s.
+                    await asyncio.sleep(2.0)
                     self.hass.loop.create_task(self.request_system_settings())
                 except BleakError as e:
                     _LOGGER.warning("BleakError during start_notify for %s: %s", self._mac, e)
