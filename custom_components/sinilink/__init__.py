@@ -7,7 +7,7 @@ from homeassistant.const import CONF_MAC
 from .const import DOMAIN
 from .sinilink import SinilinkInstance
 
-PLATFORMS = ["media_player", "switch", "number"]
+PLATFORMS = ["media_player", "switch", "number", "sensor", "binary_sensor"]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

@@ -9,6 +9,7 @@ from bleak.exc import BleakError
 
 from homeassistant.components import bluetooth
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 
 WRITE_UUID = "0000ae10-0000-1000-8000-00805f9b34fb"
 NOTIFY_UUID = "0000ae04-0000-1000-8000-00805f9b34fb"
@@ -23,6 +24,7 @@ class SinilinkInstance:
         self.hass = hass
         self._device: BleakClient | None = None
         self._is_on = False
+        self.last_seen = None
         self._volume = 0
         self._source = "AUX"
         self._is_playing = False
@@ -53,14 +55,14 @@ class SinilinkInstance:
         async with self._write_lock:
             _LOGGER.debug("Final payload to send to %s: %s", self._mac, payload.hex())
             try:
-                await self._device.write_gatt_char(WRITE_UUID, payload, response=False)
+                await self._device.write_gatt_char(WRITE_UUID, payload)
                 await asyncio.sleep(0.1)
             except BleakError as e:
                 _LOGGER.warning("BleakError during write to %s: %s. Attempting to reconnect and retry", self._mac, e)
                 if await self.connect():
                     _LOGGER.debug("Reconnected to %s successfully. Retrying write", self._mac)
                     try:
-                        await self._device.write_gatt_char(WRITE_UUID, payload, response=False)
+                        await self._device.write_gatt_char(WRITE_UUID, payload)
                         await asyncio.sleep(0.1)
                     except BleakError as e_retry:
                         _LOGGER.error("BleakError on retry write to %s after reconnect: %s", self._mac, e_retry)
@@ -81,6 +83,7 @@ class SinilinkInstance:
 
     async def _notification_handler(self, sender: int, data: bytearray):
         """Handle incoming notifications with robust buffering."""
+        self.last_seen = dt_util.utcnow()
         hex_string = ''.join(format(x, ' 03x') for x in data)
         _LOGGER.debug("RAW Notification from %s: %s", self._mac, hex_string)
 
